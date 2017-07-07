@@ -44,7 +44,7 @@ class Helix(discord.Client):
         self.playlisturl = "https://gist.githubusercontent.com/DNAGamer/841aa5876ae20b3e52baf5045dc1dfce/raw/c0ced708b63a2b7186863d55953a075472444202/"
         self.config = Config(config_file)
         self.permissions = Permissions(perms_file, grant_all=[self.config.owner_id])
-
+        self.autoplaylist = load_file(self.config.auto_playlist_file)
         self.blacklist = set(load_file(self.config.blacklist_file))
         self.aiolocks = defaultdict(asyncio.Lock)
         self.downloader = Downloader(download_folder='audio_cache')
@@ -538,7 +538,7 @@ class Helix(discord.Client):
         # This is the one event where its ok to serialize autoplaylist entries
         await self.serialize_queue(player.voice_client.channel.server)
 
-        channel = entry.meta.get('channel', None)
+        channel = player.voice_client.channel
         channel = self.server_specific_data[channel.server]['last_np_msg']
         channel = channel.channel
         author = entry.meta.get('author', None)
@@ -561,9 +561,6 @@ class Helix(discord.Client):
             em = discord.Embed(description=newmsg, colour=(random.randint(0, 16777215)))
             em.set_image(url=thumbnail)
             if self.server_specific_data[channel.server]['last_np_msg']:
-                try:
-                    self.server_specific_data[channel.server]['last_np_msg'] = await self.edit_message(last_np_msg, embed=em)
-                except:
                     self.server_specific_data[channel.server]['last_np_msg'] = await self.send_message(channel,embed=em)
             else:
                 self.server_specific_data[channel.server]['last_np_msg'] = await self.send_message(channel, embed=em)
@@ -579,17 +576,55 @@ class Helix(discord.Client):
         await self.update_now_playing_status()
 
     async def on_player_finished_playing(self, player, **_):
-
-        if not player.playlist.entries and not player.current_entry:
-            try:
-                await self.serialize_queue(player.voice_client.channel.server)
-                channel = self.server_specific_data[player.voice_client.channel.server]['last_np_msg'].channel
-                if not os.path.isfile("data/{}spawn.json".format(str(channel.server.id))):
-                    await self.safe_send_message(channel, "Thanks for using Helix. If you like me, and want me to keep running, consider donating with ``{}donate``.".format(prefix))
-                else:
-                    os.unlink("data/{}spawn.json".format(str(channel.server.id)))
-            except:
+        await self.serialize_queue(player.voice_client.channel.server)
+        if not player.playlist.entries:
+            if player.is_playing:
+                return
+            else:
                 pass
+        else:
+            return
+        while self.autoplaylist:
+            random.shuffle(self.autoplaylist)
+            song_url = random.choice(self.autoplaylist)
+
+            info = {}
+
+            try:
+                info = await self.downloader.extract_info(player.playlist.loop, song_url, download=False, process=False)
+            except self.downloader.youtube_dl.utils.DownloadError as e:
+                if 'YouTube said:' in e.args[0]:
+                    # url is bork, remove from list and put in removed list
+                    log.error("Error processing youtube url:\n{}".format(e.args[0]))
+
+                else:
+                    # Probably an error from a different extractor, but I've only seen youtube's
+                    log.error("Error processing \"{url}\": {ex}".format(url=song_url, ex=e))
+
+                await self.remove_from_autoplaylist(song_url, ex=e, delete_from_ap=True)
+                continue
+
+            except Exception as e:
+                log.error("Error processing \"{url}\": {ex}".format(url=song_url, ex=e))
+                log.exception()
+
+                self.autoplaylist.remove(song_url)
+                continue
+
+            if info.get('entries', None):  # or .get('_type', '') == 'playlist'
+                log.debug("Playlist found but is unsupported at this time, skipping.")
+                # TODO: Playlist expansion
+
+            # Do I check the initial conditions again?
+            # not (not player.playlist.entries and not player.current_entry and self.config.auto_playlist)
+
+            try:
+                await player.playlist.add_entry(song_url, channel=None, author=None)
+            except Exception as e:
+                log.error("Error adding song from autoplaylist: {}".format(e))
+                log.debug('', exc_info=True)
+                continue
+            break
 
     async def on_player_entry_added(self, player, playlist, entry, **_):
         if entry.meta.get('author') and entry.meta.get('channel'):
@@ -3323,8 +3358,7 @@ with your fragile little mind"""
             player.play()
         if player.playlist.entries:
             os.unlink("data/{}spawn.json".format(str(server.id)))
-        if self.config.auto_playlist:
-            await self.on_player_finished_playing(player)
+        await self.on_player_finished_playing(player)
 
     async def cmd_skip(self, player, channel, author, message, permissions, voice_channel):
         """
@@ -3985,7 +4019,7 @@ with your fragile little mind"""
             if command in commands:
                 server = message.server
                 self.server_specific_data[message.server]['last_np_msg'] = message
-
+                print((self.server_specific_data[message.server]['last_np_msg']))
             handler_kwargs = {}
             if params.pop('message', None):
                 handler_kwargs['message'] = message
