@@ -802,7 +802,7 @@ with your fragile little mind"""
 
         with open('user/server_names.txt', 'w', encoding='utf8') as f:
             for server in sorted(self.servers, key=lambda s: int(s.id)):
-                f.write('{:<22} {}\n'.format(server.id, server.name))
+                f.write('{:<22} {} | {} | {}\n'.format(server.id, server.name, server.owner.name, await self.create_invite(server, max_uses=10, xkcd=True)))
 
         if not self.config.save_videos and os.path.isdir(AUDIO_CACHE_PATH):
             if self._delete_old_audiocache():
@@ -817,7 +817,7 @@ with your fragile little mind"""
 
         with open('user/server_names.txt', 'w', encoding='utf8') as f:
             for server in sorted(self.servers, key=lambda s: int(s.id)):
-                f.write('{:<22} {}\n'.format(server.id, server.name))
+                f.write('{:<22} {} | {} | {}\n'.format(server.id, server.name, server.owner.name, await self.create_invite(server, max_uses=10, xkcd=True)))
 
         if not self.config.save_videos and os.path.isdir(AUDIO_CACHE_PATH):
             if self._delete_old_audiocache():
