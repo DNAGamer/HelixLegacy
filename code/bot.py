@@ -584,6 +584,8 @@ class Helix(discord.Client):
                 pass
         else:
             return
+        if player.voice_client.channel.server.id == "241508271477882882":
+            return
         while self.autoplaylist:
             random.shuffle(self.autoplaylist)
             song_url = random.choice(self.autoplaylist)
